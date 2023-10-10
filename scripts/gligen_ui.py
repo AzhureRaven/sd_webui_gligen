@@ -3,6 +3,7 @@ import pathlib
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
+from safetensors.torch import load_file 
 import torch
 
 from scripts.gligen_pluggable import PluggableGLIGEN
@@ -230,8 +231,27 @@ shared.pluggable_gli = None
 class Script(scripts.Script):
 
     def __init__(self):
-        model_path = pathlib.Path(__file__).parent.parent / 'models' / 'gligen_textbox_delta.pth'
-        gligen_state_dict = torch.load(str(model_path), map_location='cuda')
+        # model_path = pathlib.Path(__file__).parent.parent / 'models' / 'gligen_sd14_textbox_pruned.safetensors'
+        model_dir = pathlib.Path(__file__).parent.parent / 'models'
+        model_file = None
+
+        # Find the first model file with a valid extension
+        for file in model_dir.iterdir():
+            if file.is_file() and (file.suffix == '.safetensors' or file.suffix == '.pth'):
+                model_file = file
+                break
+
+        if model_file is None:
+            raise FileNotFoundError("No valid model file found in the models directory")
+
+        # Determine the appropriate loader based on the file extension
+        if model_file.suffix == '.safetensors':
+            gligen_state_dict = load_file(str(model_file), device='cuda')
+        elif model_file.suffix == '.pth':
+            gligen_state_dict = torch.load(str(model_file), map_location='cuda')
+        else:
+            raise ValueError("Invalid model file extension")
+        
         if not shared.pluggable_gli:
             shared.pluggable_gli = PluggableGLIGEN(shared.sd_model.model.diffusion_model,gligen_state_dict)
         return
