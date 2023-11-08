@@ -27,6 +27,7 @@ gradio_compat = True
 MAX_COLORS = 12
 switch_values_symbol = '\U000021C5' # ⇅
 
+
 # rescale_js = """
 # function(x) {
 #     const root = document.querySelector('gradio-app').shadowRoot || document.querySelector('gradio-app');
@@ -125,6 +126,9 @@ def draw_box(boxes=[], texts=[], img=None, width=512, height=512):
         draw.text([box[0] + int(font.size * 0.2), box[3] - int(font.size*1.2)], anno_text, font=font, fill=(255,255,255))
     return img
 
+import time
+DEBOUNCE_TIME = 0.5
+last_time = 0
 
 def draw(task, input, grounding_texts, new_image_trigger, state):
     if type(input) == dict:
@@ -191,7 +195,7 @@ def draw(task, input, grounding_texts, new_image_trigger, state):
         diff_mask = mask - last_mask
     else:
         diff_mask = np.zeros([])
-
+    
     if diff_mask.sum() > 0:
         x1x2 = np.where(diff_mask.max(0) != 0)[0]
         y1y2 = np.where(diff_mask.max(1) != 0)[0]
@@ -199,8 +203,12 @@ def draw(task, input, grounding_texts, new_image_trigger, state):
         x1, x2 = x1x2.min(), x1x2.max()
 
         if (x2 - x1 > 5) and (y2 - y1 > 5):
-            state['masks'].append(mask.copy())
-            state['boxes'].append((x1, y1, x2, y2))
+            global last_time
+            now = time.time()
+            if now - last_time >= DEBOUNCE_TIME:
+                state['masks'].append(mask.copy())
+                state['boxes'].append((x1, y1, x2, y2))
+                last_time = now
 
     grounding_texts = [x.strip() for x in grounding_texts.split(';')]
     grounding_texts = [x for x in grounding_texts if len(x) > 0]
