@@ -117,8 +117,11 @@ def draw_box(boxes=[], texts=[], img=None, width=512, height=512):
         img = Image.new('RGB', (height, width), (255, 255, 255))
     colors = ["red", "olive", "blue", "green", "orange", "brown", "cyan", "purple"]
     draw = ImageDraw.Draw(img)
-    #font_path = os.path.join(cv2.__path__[0], 'qt', 'fonts', 'DejaVuSans.ttf')
-    font = ImageFont.truetype("arial.ttf", size=18)
+    font_path = os.path.join(cv2.__path__[0], 'qt', 'fonts', 'DejaVuSans.ttf')
+    if os.path.exists(font_path):
+        font = ImageFont.truetype(font_path, size=18)
+    else:
+        font = ImageFont.truetype("arial.ttf", size=18)
     for bid, box in enumerate(boxes):
         draw.rectangle([box[0], box[1], box[2], box[3]], outline=colors[bid % len(colors)], width=4)
         anno_text = texts[bid]
@@ -127,103 +130,103 @@ def draw_box(boxes=[], texts=[], img=None, width=512, height=512):
     return img
 
 import time
-DEBOUNCE_TIME = 0.5
+DEBOUNCE_TIME = 1
 last_time = 0
 
 def draw(task, input, grounding_texts, new_image_trigger, state):
-    if type(input) == dict:
-        image = input['image']
-        width, height = image.shape[:2]
-        mask = input['mask']
-    else:
-        mask = input
+    global last_time
+    now = time.time()
+    if now - last_time >= DEBOUNCE_TIME:
+        last_time = now
+        if type(input) == dict:
+            image = input['image']
+            width, height = image.shape[:2]
+            mask = input['mask']
+        else:
+            mask = input
 
-    if mask.ndim == 3:
-        mask = mask[..., 0]
+        if mask.ndim == 3:
+            mask = mask[..., 0]
 
-    image_scale = 1.0
+        image_scale = 1.0
 
-    # resize trigger
-    # if task == "Grounded Inpainting":
-    #     mask_cond = mask.sum() == 0
-    #     # size_cond = mask.shape != (512, 512)
-    #     if mask_cond and 'original_image' not in state:
-    #         image = Image.fromarray(image)
-    #         width, height = image.size
-    #         scale = 600 / min(width, height)
-    #         image = image.resize((int(width * scale), int(height * scale)))
-    #         state['original_image'] = np.array(image).copy()
-    #         image_scale = float(height / width)
-    #         return [None, new_image_trigger + 1, image_scale, state]
-    #     else:
-    # original_image = state['original_image']
-    # H, W = original_image.shape[:2]
-    # image_scale = float(H / W)
+        # resize trigger
+        # if task == "Grounded Inpainting":
+        #     mask_cond = mask.sum() == 0
+        #     # size_cond = mask.shape != (512, 512)
+        #     if mask_cond and 'original_image' not in state:
+        #         image = Image.fromarray(image)
+        #         width, height = image.size
+        #         scale = 600 / min(width, height)
+        #         image = image.resize((int(width * scale), int(height * scale)))
+        #         state['original_image'] = np.array(image).copy()
+        #         image_scale = float(height / width)
+        #         return [None, new_image_trigger + 1, image_scale, state]
+        #     else:
+        # original_image = state['original_image']
+        # H, W = original_image.shape[:2]
+        # image_scale = float(H / W)
 
-    mask = binarize(mask)
-    # if mask.shape != (512, 512):
-    #     # assert False, "should not receive any non- 512x512 masks."
-    #     if 'original_image' in state and state['original_image'].shape[:2] == mask.shape:
-    #         mask = center_crop(mask, state['inpaint_hw'])
-    #         image = center_crop(state['original_image'], state['inpaint_hw'])
-    #     else:
-    #         mask = np.zeros((512, 512), dtype=np.uint8)
-    # mask = center_crop(mask)
-    # mask = binarize(mask)
+        mask = binarize(mask)
+        # if mask.shape != (512, 512):
+        #     # assert False, "should not receive any non- 512x512 masks."
+        #     if 'original_image' in state and state['original_image'].shape[:2] == mask.shape:
+        #         mask = center_crop(mask, state['inpaint_hw'])
+        #         image = center_crop(state['original_image'], state['inpaint_hw'])
+        #     else:
+        #         mask = np.zeros((512, 512), dtype=np.uint8)
+        # mask = center_crop(mask)
+        # mask = binarize(mask)
 
-    if type(mask) != np.ndarray:
-        mask = np.array(mask)
+        if type(mask) != np.ndarray:
+            mask = np.array(mask)
 
-    if mask.sum() == 0 and task != "Grounded Inpainting":
-        state = {}
+        if mask.sum() == 0 and task != "Grounded Inpainting":
+            state = {}
 
-    if task != 'Grounded Inpainting':
-        image = None
-    else:
-        image = Image.fromarray(image)
+        if task != 'Grounded Inpainting':
+            image = None
+        else:
+            image = Image.fromarray(image)
 
-    if 'boxes' not in state:
-        state['boxes'] = []
+        if 'boxes' not in state:
+            state['boxes'] = []
 
-    if 'masks' not in state or len(state['masks']) == 0:
-        state['masks'] = []
-        last_mask = np.zeros_like(mask)
-    else:
-        last_mask = state['masks'][-1]
+        if 'masks' not in state or len(state['masks']) == 0:
+            state['masks'] = []
+            last_mask = np.zeros_like(mask)
+        else:
+            last_mask = state['masks'][-1]
 
-    if type(mask) == np.ndarray and mask.size > 1:
-        diff_mask = mask - last_mask
-    else:
-        diff_mask = np.zeros([])
-    
-    if diff_mask.sum() > 0:
-        x1x2 = np.where(diff_mask.max(0) != 0)[0]
-        y1y2 = np.where(diff_mask.max(1) != 0)[0]
-        y1, y2 = y1y2.min(), y1y2.max()
-        x1, x2 = x1x2.min(), x1x2.max()
+        if type(mask) == np.ndarray and mask.size > 1:
+            diff_mask = mask - last_mask
+        else:
+            diff_mask = np.zeros([])
 
-        if (x2 - x1 > 5) and (y2 - y1 > 5):
-            global last_time
-            now = time.time()
-            if now - last_time >= DEBOUNCE_TIME:
+        if diff_mask.sum() > 0:
+            x1x2 = np.where(diff_mask.max(0) != 0)[0]
+            y1y2 = np.where(diff_mask.max(1) != 0)[0]
+            y1, y2 = y1y2.min(), y1y2.max()
+            x1, x2 = x1x2.min(), x1x2.max()
+
+            if (x2 - x1 > 5) and (y2 - y1 > 5):
                 state['masks'].append(mask.copy())
                 state['boxes'].append((x1, y1, x2, y2))
-                last_time = now
 
-    grounding_texts = [x.strip() for x in grounding_texts.split(';')]
-    grounding_texts = [x for x in grounding_texts if len(x) > 0]
-    if len(grounding_texts) < len(state['boxes']):
-        grounding_texts += [f'Obj. {bid+1}' for bid in range(len(grounding_texts), len(state['boxes']))]
+        grounding_texts = [x.strip() for x in grounding_texts.split(';')]
+        grounding_texts = [x for x in grounding_texts if len(x) > 0]
+        if len(grounding_texts) < len(state['boxes']):
+            grounding_texts += [f'Obj. {bid+1}' for bid in range(len(grounding_texts), len(state['boxes']))]
 
-    box_image = draw_box(state['boxes'], grounding_texts, image, width, height)
+        box_image = draw_box(state['boxes'], grounding_texts, image, width, height)
 
-    if box_image is not None and state.get('inpaint_hw', None):
-        inpaint_hw = state['inpaint_hw']
-        box_image_resize = np.array(box_image.resize((inpaint_hw, inpaint_hw)))
-        original_image = state['original_image'].copy()
-        box_image = sized_center_fill(original_image, box_image_resize, inpaint_hw, inpaint_hw)
+        if box_image is not None and state.get('inpaint_hw', None):
+            inpaint_hw = state['inpaint_hw']
+            box_image_resize = np.array(box_image.resize((inpaint_hw, inpaint_hw)))
+            original_image = state['original_image'].copy()
+            box_image = sized_center_fill(original_image, box_image_resize, inpaint_hw, inpaint_hw)
 
-    return [box_image, new_image_trigger, image_scale, state]
+        return [box_image, new_image_trigger, image_scale, state]
 
 def clear(task, sketch_pad_trigger, state, switch_task=False):
     if task != 'Grounded Inpainting':
